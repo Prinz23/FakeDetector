@@ -140,7 +140,7 @@ def contains_banned_media(list):
 # Exception: rename.bat (.sh, .exe) are ignored, sometimes valid posts include them.
 def contains_executable(list):
 	exExtensions = [ '.exe', '.bat', '.sh' ]
-	allowNames = [ 'rename', 'Rename' ]
+	allowNames = [ 'rename', 'Rename', 'File Renamer' ]
 	excludePath = [ r'reverse', r'spiegelen' ]
 	for item in list:
 		ep = False
@@ -153,7 +153,7 @@ def contains_executable(list):
 		name, ext = os.path.splitext(item)
 		if os.path.split(name)[1] != "":
 			name = os.path.split(name)[1]
-		if ext == '.exe' or (ext in exExtensions and not name in allowNames):
+		if ext.lower() in exExtensions and not name in allowNames:
 			print('[INFO] Found executable %s' % item)
 			return True
 		else:

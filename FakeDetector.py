@@ -36,13 +36,12 @@
 # The status "FAILURE/BAD" is passed to other scripts and informs them
 # about failure.
 #
-# PP-Script version: 1.7.
+# PP-Script version: 1.8.
 #
 # For more info and updates please visit forum topic at
 # http://nzbget.net/forum/viewtopic.php?f=8&t=1394.
 #
-# NOTE: This script requires Python to be installed on your system (tested
-# only with Python 2.x; may not work with Python 3.x).
+# NOTE: This script requires Python to be installed on your system.
 
 
 ##############################################################################
@@ -63,11 +62,29 @@ import os
 import sys
 import subprocess
 import re
-import urllib2
+
+PY2 = 2 == sys.version_info[0]
+PY3 = 3 == sys.version_info[0]
+
+try:
+	from urllib2 import Request, urlopen
+except ImportError:
+	from urllib.request import Request, urlopen
 import base64
-from xmlrpclib import ServerProxy
+from xmlrpclib_to import ServerProxy
 import shlex
 import traceback
+
+
+if PY3:
+	text_type = str
+	binary_type = bytes
+	encodebytes = base64.encodebytes
+
+else:
+	text_type = unicode
+	binary_type = str
+	encodebytes = base64.encodestring
 
 # Exit codes used by NZBGet for post-processing scripts.
 # Queue-scripts don't have any special exit codes.
@@ -79,6 +96,48 @@ mediaExtensions = ['.mkv', '.avi', '.divx', '.xvid', '.mov', '.wmv', '.mp4', '.m
 bannedMediaExtensions = os.environ.get('NZBPO_BANNEDEXTENSIONS').replace(' ', '').split(',')
 
 verbose = False
+
+
+def ensure_binary(s, encoding='utf-8', errors='strict'):
+	"""Coerce **s** to six.binary_type.
+
+	For Python 2:
+	  - `unicode` -> encoded to `str`
+	  - `str` -> `str`
+
+	For Python 3:
+	  - `str` -> encoded to `bytes`
+	  - `bytes` -> `bytes`
+	"""
+	if isinstance(s, binary_type):
+		return s
+	if isinstance(s, text_type):
+		return s.encode(encoding, errors)
+	raise TypeError("not expecting type '%s'" % type(s))
+
+
+def ensure_str(s, encoding='utf-8', errors='strict'):
+	"""Coerce *s* to `str`.
+
+	For Python 2:
+	  - `unicode` -> encoded to `str`
+	  - `str` -> `str`
+
+	For Python 3:
+	  - `str` -> `str`
+	  - `bytes` -> decoded to `str`
+	"""
+	# Optimization: Fast return for the common case.
+	if type(s) is str:
+		return s
+	if PY2 and isinstance(s, text_type):
+		return s.encode(encoding, errors)
+	elif PY3 and isinstance(s, binary_type):
+		return s.decode(encoding, errors)
+	elif not isinstance(s, (text_type, binary_type)):
+		raise TypeError("not expecting type '%s'" % type(s))
+	return s
+
 
 # Start up checks
 def start_check():
@@ -216,7 +275,7 @@ def list_all_rars(dir):
 					print('command: %s' % command)
 				proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 				out_tmp, err = proc.communicate()
-				out += out_tmp
+				out += ensure_str(out_tmp)
 				result = proc.returncode
 				if verbose:
 					print(out_tmp)
@@ -274,10 +333,10 @@ def connect_to_nzbget():
 
 	# Build an URL for XML-RPC requests
 	# TODO: encode username and password in URL-format
-	xmlRpcUrl = 'http://%s:%s@%s:%s/xmlrpc' % (username, password, host, port);
+	xmlRpcUrl = 'http://%s:%s@%s:%s/xmlrpc' % (username, password, host, port)
 
 	# Create remote server object
-	nzbget = ServerProxy(xmlRpcUrl)
+	nzbget = ServerProxy(xmlRpcUrl, timeout=500)
 	return nzbget
 
 # Connect to NZBGet and call an RPC-API-method without using of python's XML-RPC.
@@ -292,15 +351,19 @@ def call_nzbget_direct(url_command):
 	password = os.environ['NZBOP_CONTROLPASSWORD']
 
 	# Building http-URL to call the method
-	httpUrl = 'http://%s:%s/jsonrpc/%s' % (host, port, url_command);
-	request = urllib2.Request(httpUrl)
+	httpUrl = 'http://%s:%s/jsonrpc/%s' % (host, port, url_command)
+	request = Request(httpUrl)
 
-	base64string = base64.encodestring('%s:%s' % (username, password)).replace('\n', '')
+	base64string = ensure_str(encodebytes(ensure_binary('%s:%s' % (username, password)))).replace('\n', '')
 	request.add_header("Authorization", "Basic %s" % base64string)
 
 	# Load data from NZBGet
-	response = urllib2.urlopen(request)
-	data = response.read()
+	try:
+		response = urlopen(request)
+		data = ensure_str(response.read())
+	except Exception:
+		print('Error connecting to NZBGet')
+		sys.exit(1)
 
 	# "data" is a JSON raw-string
 	return data
@@ -325,6 +388,7 @@ def sort_inner_files():
 	file_name = None
 
 	for line in data.splitlines():
+		line = ensure_str(line)
 		if line.startswith('"ID" : '):
 			cur_id = int(line[7:len(line)-1])
 		if line.startswith('"Filename" : "'):
@@ -363,6 +427,7 @@ def clean_up():
 		# The "data" is a raw json-string. We could use json.loads(data) to
 		# parse it but json-module is slow. We parse it on our own.
 		for line in data.splitlines():
+			line = ensure_str(line)
 			if line.startswith('"NZBID" : '):
 				cur_id = int(line[10:len(line)-1])
 				nzbids.append(str(cur_id))

@@ -12,4 +12,4 @@ The status "FAILURE/BAD" is passed to other scripts and informs them about failu
 
 For more info and support please visit forum topic [PP-Script FakeDetector](http://nzbget.net/forum/viewtopic.php?f=8&t=1394).
 
-NOTE: This script requires Python to be installed on your system (tested only with Python 2.x; may not work with Python 3.x).
+NOTE: This script requires Python to be installed on your system
